@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Tasks to CSV Converter</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #6c757d;
+            margin-bottom: 30px;
+        }
+        
+        .upload-area {
+            border: 2px dashed #007bff;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9ff;
+            margin-bottom: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area:hover {
+            border-color: #0056b3;
+            background: #e6f3ff;
+        }
+        
+        .upload-area.dragover {
+            border-color: #28a745;
+            background: #e8f5e8;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .upload-text {
+            color: #007bff;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        
+        .upload-hint {
+            color: #6c757d;
+            font-size: 14px;
+        }
+        
+        .preview {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .preview h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        
+        .preview-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .preview-table th,
+        .preview-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border: 1px solid #dee2e6;
+        }
+        
+        .preview-table th {
+            background: #e9ecef;
+            font-weight: 600;
+        }
+        
+        .status-completed {
+            color: #28a745;
+            font-weight: 500;
+        }
+        
+        .status-pending {
+            color: #ffc107;
+            font-weight: 500;
+        }
+        
+        .download-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 15px;
+            transition: background 0.3s ease;
+        }
+        
+        .download-btn:hover {
+            background: #218838;
+        }
+        
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+        }
+        
+        .task-count {
+            background: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗂️ Google Tasks to CSV Converter</h1>
+        <p class="subtitle">Convert your Google Tasks JSON export into a clean spreadsheet format</p>
+        
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <div class="upload-text">📁 Click to upload your Tasks JSON file</div>
+            <div class="upload-hint">Or drag and drop your file here</div>
+        </div>
+        
+        <input type="file" id="fileInput" accept=".json">
+        
+        <div id="taskCount" class="task-count" style="display: none;"></div>
+        
+        <div id="preview" class="preview">
+            <h3>Preview (showing first 10 tasks):</h3>
+            <table class="preview-table" id="previewTable"></table>
+            <button class="download-btn" id="downloadBtn">📥 Download CSV</button>
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        let processedData = [];
+        
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.querySelector('.upload-area');
+        const preview = document.getElementById('preview');
+        const previewTable = document.getElementById('previewTable');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const errorDiv = document.getElementById('error');
+        const taskCountDiv = document.getElementById('taskCount');
+        
+        // File upload handlers
+        fileInput.addEventListener('change', handleFile);
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile({ target: { files } });
+            }
+        });
+        
+        function handleFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const jsonData = JSON.parse(e.target.result);
+                    processData(jsonData);
+                } catch (error) {
+                    showError('Invalid JSON file. Please make sure you uploaded the correct Google Tasks export.');
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        function processData(data) {
+            try {
+                processedData = [];
+                
+                // Handle the structure from your JSON
+                if (data.items && data.items.length > 0) {
+                    data.items.forEach(taskList => {
+                        if (taskList.items) {
+                            taskList.items.forEach(task => {
+                                processedData.push({
+                                    title: task.title || '',
+                                    status: task.status === 'completed' ? 'Completed' : 'Pending',
+                                    due_date: task.due ? formatDate(task.due) : '',
+                                    created_date: task.created ? formatDate(task.created) : '',
+                                    completed_date: task.completed ? formatDate(task.completed) : '',
+                                    category: '', // Empty for user to fill
+                                    priority: '', // Empty for user to fill
+                                    project: '', // Empty for user to fill
+                                    notes: '', // Empty for user to fill
+                                    list_name: taskList.title || 'My Tasks' // Include which list it came from
+                                });
+                            });
+                        }
+                    });
+                }
+                
+                if (processedData.length === 0) {
+                    showError('No tasks found in the JSON file. Please check the file format.');
+                    return;
+                }
+                
+                showTaskCount();
+                showPreview();
+                hideError();
+                
+            } catch (error) {
+                showError('Error processing the file: ' + error.message);
+            }
+        }
+        
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+        
+        function showTaskCount() {
+            taskCountDiv.textContent = `✅ Found ${processedData.length} tasks ready to convert!`;
+            taskCountDiv.style.display = 'block';
+        }
+        
+        function showPreview() {
+            // Show first 10 tasks in preview
+            const previewData = processedData.slice(0, 10);
+            
+            let html = `
+                <tr>
+                    <th>Task</th>
+                    <th>Status</th>
+                    <th>Due Date</th>
+                    <th>Created</th>
+                    <th>List</th>
+                    <th>Category</th>
+                </tr>
+            `;
+            
+            previewData.forEach(task => {
+                const statusClass = task.status === 'Completed' ? 'status-completed' : 'status-pending';
+                html += `
+                    <tr>
+                        <td>${task.title}</td>
+                        <td class="${statusClass}">${task.status}</td>
+                        <td>${task.due_date}</td>
+                        <td>${task.created_date}</td>
+                        <td>${task.list_name}</td>
+                        <td><em>empty</em></td>
+                    </tr>
+                `;
+            });
+            
+            previewTable.innerHTML = html;
+            preview.style.display = 'block';
+        }
+        
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function hideError() {
+            errorDiv.style.display = 'none';
+        }
+        
+        // Download CSV
+        downloadBtn.addEventListener('click', function() {
+            const headers = ['Task', 'Status', 'Due Date', 'Created Date', 'Completed Date', 'List Name', 'Category', 'Priority', 'Project', 'Notes'];
+            
+            let csvContent = headers.join(',') + '\n';
+            
+            processedData.forEach(task => {
+                const row = [
+                    `"${task.title.replace(/"/g, '""')}"`,
+                    task.status,
+                    task.due_date,
+                    task.created_date,
+                    task.completed_date,
+                    task.list_name,
+                    task.category,
+                    task.priority,
+                    task.project,
+                    task.notes
+                ];
+                csvContent += row.join(',') + '\n';
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'google_tasks_converted.csv';
+            a.click();
+            window.URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
